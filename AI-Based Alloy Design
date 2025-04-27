@@ -1,0 +1,81 @@
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
+from skopt import gp_minimize
+from skopt.space import Real
+import matplotlib.pyplot as plt
+
+# Step 1: Generate random synthetic alloy data
+np.random.seed(42)
+
+n_samples = 100
+
+# Random alloy compositions (percentages of 3 elements, should sum around 100)
+element_A = np.random.uniform(20, 60, n_samples)  # %
+element_B = np.random.uniform(20, 50, n_samples)  # %
+element_C = 100 - element_A - element_B            # %
+
+# Random material properties (simple fake relationships)
+tensile_strength = 300 + 2 * element_A + 1.5 * element_B + np.random.normal(0, 10, n_samples)  # MPa
+fatigue_resistance = 200 + 1.8 * element_B + 1.2 * element_C + np.random.normal(0, 8, n_samples)  # MPa
+
+# Objective: We want to maximize a combined score
+material_score = (0.6 * tensile_strength + 0.4 * fatigue_resistance) / 1000  # scaled
+
+# Create DataFrame
+alloy_df = pd.DataFrame({
+    'Element A (%)': element_A,
+    'Element B (%)': element_B,
+    'Element C (%)': element_C,
+    'Tensile Strength (MPa)': tensile_strength,
+    'Fatigue Resistance (MPa)': fatigue_resistance,
+    'Material Score': material_score
+})
+
+print(alloy_df.head())
+
+# Step 2: Train a Machine Learning model
+X = alloy_df[['Element A (%)', 'Element B (%)']]
+y = alloy_df['Material Score']
+
+model = RandomForestRegressor(n_estimators=100, random_state=42)
+model.fit(X, y)
+
+# Step 3: Use Bayesian Optimization to find best alloy composition
+
+# Define search space for elements A and B
+search_space = [
+    Real(20, 60, name='element_A'),
+    Real(20, 50, name='element_B')
+]
+
+# Objective function to minimize (-score to maximize score)
+def objective(params):
+    a, b = params
+    c = 100 - a - b
+    if c < 0:
+        return 1e5  # Invalid composition penalty
+    features = np.array([[a, b]])
+    score = model.predict(features)[0]
+    return -score
+
+# Run Bayesian Optimization
+result = gp_minimize(objective, search_space, n_calls=30, random_state=42)
+
+best_element_A, best_element_B = result.x
+best_element_C = 100 - best_element_A - best_element_B
+best_score = -result.fun
+
+print(f"\nOptimal Alloy Composition:")
+print(f"Element A: {best_element_A:.2f}%")
+print(f"Element B: {best_element_B:.2f}%")
+print(f"Element C: {best_element_C:.2f}%")
+print(f"Predicted Material Score: {best_score:.4f}")
+
+# Step 4: Plot convergence
+plt.plot(-np.array(result.func_vals), marker='o')
+plt.xlabel('Iteration')
+plt.ylabel('Material Score')
+plt.title('Bayesian Optimization Progress')
+plt.grid(True)
+plt.show()
